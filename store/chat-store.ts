@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { Message, ChatResponse } from '@/types/chat.types';
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
+import type { Message } from '@/types/chat.types';
+
 
 interface ChatState {
   messages: Message[];
@@ -7,17 +9,17 @@ interface ChatState {
   suggestedQuestions: string[];
   isLoading: boolean;
   error: string | null;
-  
-  // Actions
+
   addMessage: (message: Message) => void;
   setMessages: (messages: Message[]) => void;
-  setConversationId: (id: string) => void;
+  setConversationId: (id: string | null) => void;
   setSuggestedQuestions: (questions: string[]) => void;
   setIsLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   clearChat: () => void;
   reset: () => void;
 }
+
 
 const initialState = {
   messages: [],
@@ -31,37 +33,63 @@ const initialState = {
   error: null,
 };
 
-export const useChatStore = create<ChatState>((set) => ({
-  ...initialState,
 
-  addMessage: (message) =>
-    set((state) => ({
-      messages: [...state.messages, message],
-    })),
+const noopStorage: StateStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
 
-  setMessages: (messages) =>
-    set({ messages }),
+const storage =
+  typeof window !== 'undefined'
+    ? createJSONStorage(() => localStorage)
+    : createJSONStorage(() => noopStorage);
 
-  setConversationId: (id) =>
-    set({ conversationId: id }),
 
-  setSuggestedQuestions: (questions) =>
-    set({ suggestedQuestions: questions }),
+export const useChatStore = create<ChatState>()(
+  persist(
+    (set) => ({
+      ...initialState,
 
-  setIsLoading: (loading) =>
-    set({ isLoading: loading }),
+      addMessage: (message) =>
+        set((state) => ({
+          messages: [...state.messages, message],
+        })),
 
-  setError: (error) =>
-    set({ error }),
+      setMessages: (messages) =>
+        set({ messages }),
 
-  clearChat: () =>
-    set({
-      messages: [],
-      conversationId: null,
-      suggestedQuestions: initialState.suggestedQuestions,
-      error: null,
+      setConversationId: (id) =>
+        set({ conversationId: id }),
+
+      setSuggestedQuestions: (questions) =>
+        set({ suggestedQuestions: questions }),
+
+      setIsLoading: (loading) =>
+        set({ isLoading: loading }),
+
+      setError: (error) =>
+        set({ error }),
+
+      clearChat: () =>
+        set({
+          messages: [],
+          conversationId: null,
+          suggestedQuestions: initialState.suggestedQuestions,
+          error: null,
+        }),
+
+      reset: () =>
+        set({ ...initialState }),
     }),
+    {
+      name: 'camaral-chat-storage',
+      storage,
 
-  reset: () =>
-    set(initialState),
-}));
+      partialize: (state) => ({
+        messages: state.messages,
+        conversationId: state.conversationId,
+      }),
+    }
+  )
+);
