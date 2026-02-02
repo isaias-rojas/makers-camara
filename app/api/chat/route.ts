@@ -3,7 +3,6 @@ import { validateChatRequest, sanitizeInput } from '@/lib/utils/validators';
 import { handleError, isAppError } from '@/lib/utils/errors';
 import { logger } from '@/lib/utils/logger';
 import type { ApiResponse } from '@/types/api.types';
-import type { ChatResponse } from '@/types/chat.types';
 import { getChatService } from '@/lib/services/chat-service';
 
 export const runtime = 'nodejs';
@@ -21,25 +20,37 @@ export async function POST(request: NextRequest) {
     const sanitizedMessage = sanitizeInput(validatedData.message);
 
     const chatService = getChatService();
-    const response = await chatService.processMessage({
+    
+    
+    const { stream } = await chatService.processMessageStream({
       message: sanitizedMessage,
       conversationId: validatedData.conversationId,
       context: validatedData.context,
     });
 
-    const processingTime = Date.now() - startTime;
-
-    const apiResponse: ApiResponse<ChatResponse> = {
-      success: true,
-      data: response,
-      metadata: {
-        timestamp: new Date().toISOString(),
-        requestId,
-        processingTime,
+    const encoder = new TextEncoder();
+    
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
+          }
+          controller.close();
+        } catch (err) {
+          logger.error('Stream processing error', err);
+          controller.error(err);
+        }
       },
-    };
+    });
 
-    return NextResponse.json(apiResponse, { status: 200 });
+    return new NextResponse(readable, {
+      headers: {
+        'Content-Type': 'application/x-ndjson',
+        'Transfer-Encoding': 'chunked',
+      },
+    });
+
   } catch (error) {
     logger.error('Chat API error', error, { requestId });
 

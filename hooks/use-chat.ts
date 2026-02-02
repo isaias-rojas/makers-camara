@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
-import type { ChatRequest, ChatResponse } from '@/types/chat.types';
-import type { ApiResponse } from '@/types/api.types';
+import type { ChatRequest } from '@/types/chat.types';
 import { MessageModel } from '@/lib/models/message';
 import { useChatStore } from '@/store/chat-store';
 
@@ -48,21 +47,66 @@ export function useChat() {
           throw new Error(errorData.error?.message || 'Failed to send message');
         }
 
-        const data: ApiResponse<ChatResponse> = await response.json();
-
-        if (!data.success || !data.data) {
-          throw new Error('Invalid response from server');
+        if (!response.body) {
+           throw new Error('No response body');
         }
 
-        addMessage(data.data.message);
+        const assistantMessageId = crypto.randomUUID(); 
+        addMessage({
+            id: assistantMessageId,
+            role: 'assistant',
+            content: '',
+            timestamp: new Date(),
+        });
 
-        if (data.data.conversationId && data.data.conversationId !== conversationId) {
-          setConversationId(data.data.conversationId);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; 
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const chunk = JSON.parse(line);
+              
+              if (chunk.type === 'text') {
+                 useChatStore.setState((state) => ({
+                    messages: state.messages.map(msg => 
+                        msg.id === assistantMessageId 
+                        ? { ...msg, content: msg.content + chunk.content }
+                        : msg
+                    )
+                 }));
+              } else if (chunk.type === 'meta') {
+                 if (chunk.conversationId) {
+                     setConversationId(chunk.conversationId);
+                 }
+                 if (chunk.sources) {
+                     useChatStore.setState((state) => ({
+                        messages: state.messages.map(msg => 
+                            msg.id === assistantMessageId 
+                            ? { ...msg, sources: chunk.sources }
+                            : msg
+                        )
+                     }));
+                 }
+              } else if (chunk.type === 'suggestions') {
+                 setSuggestedQuestions(chunk.questions);
+              }
+
+            } catch (e) {
+              console.error('Error parsing stream chunk', e);
+            }
+          }
         }
 
-        if (data.data.suggestedQuestions) {
-          setSuggestedQuestions(data.data.suggestedQuestions);
-        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);

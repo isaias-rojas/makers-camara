@@ -15,6 +15,72 @@ export class RAGService {
   private vectorRepo = getVectorRepository();
   private openai = getOpenAIClient();
 
+  async queryStream(
+    userQuery: string,
+    conversationHistory?: Array<{ role: string; content: string }>
+  ): Promise<{ stream: AsyncIterable<any>; sources: RetrievedDocument[]; confidence: number; processingTime: number }> {
+    const startTime = Date.now();
+    logger.info('Starting RAG stream query', { query: userQuery.substring(0, 50) });
+
+    const documents = await this.retrieveDocuments(userQuery);
+    const confidence = this.calculateConfidence(documents);
+
+    if (documents.length === 0) {
+      logger.warn('No relevant documents found for stream', { query: userQuery });
+      const fallback = await this.generateFallbackResponse(userQuery, startTime);
+      
+      async function* fallbackGenerator() {
+        yield fallback.answer;
+      }
+      
+      return {
+        stream: fallbackGenerator(),
+        sources: [],
+        confidence: fallback.confidence,
+        processingTime: Date.now() - startTime,
+      };
+    }
+
+    const context = this.buildContext(documents);
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: SYSTEM_PROMPTS.MAIN },
+    ];
+
+    if (conversationHistory && conversationHistory.length > 0) {
+      const recentHistory = conversationHistory.slice(-4);
+      messages.push(...recentHistory.map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+      })));
+    }
+
+    messages.push({
+      role: 'user',
+      content: RAG_PROMPTS.ANSWER_WITH_CONTEXT(context, userQuery),
+    });
+
+    try {
+      const stream = await this.openai.chat.completions.create({
+        model: LLM_CONFIG.MODEL,
+        messages,
+        temperature: LLM_CONFIG.TEMPERATURE,
+        max_tokens: LLM_CONFIG.MAX_TOKENS,
+        stream: true,
+      });
+
+      return {
+        stream, 
+        sources: documents,
+        confidence,
+        processingTime: Date.now() - startTime,
+      };
+
+    } catch (error) {
+      logger.error('Failed to start stream', error);
+      throw new ExternalServiceError('OpenAI', 'Failed to start stream');
+    }
+  }
+
   async query(
     userQuery: string,
     conversationHistory?: Array<{ role: string; content: string }>

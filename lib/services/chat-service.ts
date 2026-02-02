@@ -10,6 +10,79 @@ export class ChatService {
   private ragService = getRAGService();
   private conversationRepo = getConversationRepository();
 
+  async processMessageStream(request: ChatRequest): Promise<{ 
+    stream: AsyncIterable<any>; 
+    conversationId: string; 
+    sources: any[];
+    suggestedQuestions: string[];
+  }> {
+    const startTime = Date.now();
+    logger.info('Processing chat stream', { conversationId: request.conversationId });
+
+    const conversation = await this.getOrCreateConversation(request.conversationId);
+    
+    const userMessage = MessageModel.create('user', request.message);
+    conversation.addMessage(userMessage.toJSON());
+    await this.conversationRepo.save(conversation); 
+
+    const history = this.getConversationHistory(conversation);
+
+    const { stream, sources, confidence, processingTime } = await this.ragService.queryStream(request.message, history);
+
+ 
+    const suggestedQuestionsPromise = this.generateSuggestedQuestions(conversation);
+
+    const conversationRepo = this.conversationRepo;
+    const self = this;
+    
+    async function* wrappedStream() {
+      let fullContent = '';
+      
+      yield { type: 'meta', sources: sources.map(doc => ({
+          id: doc.id,
+          title: doc.metadata.title,
+          excerpt: doc.content.substring(0, 200) + '...',
+          score: doc.score,
+        })),
+        conversationId: conversation.id
+      };
+
+      for await (const chunk of stream) {
+        const content = typeof chunk === 'string' ? chunk : (chunk.choices?.[0]?.delta?.content || '');
+        if (content) {
+          fullContent += content;
+          yield { type: 'text', content };
+        }
+      }
+
+      const assistantMessage = MessageModel.create('assistant', fullContent);
+      if (sources.length > 0) {
+        assistantMessage.sources = sources.map(doc => ({
+          id: doc.id,
+          title: doc.metadata.title,
+          excerpt: doc.content.substring(0, 200) + '...',
+          score: doc.score,
+          metadata: doc.metadata,
+        }));
+      }
+      assistantMessage.setMetadata('confidence', confidence);
+      assistantMessage.setMetadata('processingTime', processingTime);
+      
+      conversation.addMessage(assistantMessage.toJSON());
+      await conversationRepo.save(conversation);
+      
+      const suggestions = await suggestedQuestionsPromise;
+      yield { type: 'suggestions', questions: suggestions };
+    }
+
+    return {
+      stream: wrappedStream(),
+      conversationId: conversation.id,
+      sources: [], 
+      suggestedQuestions: [], 
+    };
+  }
+
   async processMessage(request: ChatRequest): Promise<ChatResponse> {
     const startTime = Date.now();
 
