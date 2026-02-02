@@ -1,7 +1,6 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
-import type { Message } from '@/types/chat.types';
-
+import { persist, createJSONStorage } from 'zustand/middleware';
+import type { Message, DocumentSource } from '@/types/chat.types';
 
 interface ChatState {
   messages: Message[];
@@ -9,17 +8,20 @@ interface ChatState {
   suggestedQuestions: string[];
   isLoading: boolean;
   error: string | null;
-
+  selectedSource: DocumentSource | null;
+  isSourceViewerOpen: boolean;
+  
   addMessage: (message: Message) => void;
   setMessages: (messages: Message[]) => void;
-  setConversationId: (id: string | null) => void;
+  setConversationId: (id: string) => void;
   setSuggestedQuestions: (questions: string[]) => void;
   setIsLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   clearChat: () => void;
   reset: () => void;
+  viewSource: (source: DocumentSource) => void;
+  closeSourceViewer: () => void;
 }
-
 
 const initialState = {
   messages: [],
@@ -31,20 +33,9 @@ const initialState = {
   ],
   isLoading: false,
   error: null,
+  selectedSource: null,
+  isSourceViewerOpen: false,
 };
-
-
-const noopStorage: StateStorage = {
-  getItem: () => null,
-  setItem: () => {},
-  removeItem: () => {},
-};
-
-const storage =
-  typeof window !== 'undefined'
-    ? createJSONStorage(() => localStorage)
-    : createJSONStorage(() => noopStorage);
-
 
 export const useChatStore = create<ChatState>()(
   persist(
@@ -77,19 +68,36 @@ export const useChatStore = create<ChatState>()(
           conversationId: null,
           suggestedQuestions: initialState.suggestedQuestions,
           error: null,
+          selectedSource: null,
+          isSourceViewerOpen: false,
         }),
 
       reset: () =>
-        set({ ...initialState }),
+        set(initialState),
+
+      viewSource: (source) => 
+        set({ selectedSource: source, isSourceViewerOpen: true }),
+
+      closeSourceViewer: () => 
+        set({ isSourceViewerOpen: false }),
     }),
     {
       name: 'camaral-chat-storage',
-      storage,
-
-      partialize: (state) => ({
-        messages: state.messages,
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ 
+        messages: state.messages, 
         conversationId: state.conversationId,
-      }),
+        suggestedQuestions: state.suggestedQuestions,
+      }) as unknown as ChatState,
+      onRehydrateStorage: () => {
+        return (storedState) => {
+          if (storedState) {
+             if (!storedState.suggestedQuestions || storedState.suggestedQuestions.length === 0) {
+               storedState.suggestedQuestions = initialState.suggestedQuestions;
+             }
+          }
+        };
+      },
     }
   )
 );

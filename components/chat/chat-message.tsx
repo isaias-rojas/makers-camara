@@ -2,8 +2,9 @@
 
 import type { Message } from '@/types/chat.types';
 import ReactMarkdown from 'react-markdown';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils/cn';
+import { useChatStore } from '@/store/chat-store';
 
 interface ChatMessageProps {
   message: Message;
@@ -11,6 +12,7 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
+  const viewSource = useChatStore((state) => state.viewSource); 
 
   return (
     <div className={cn("flex w-full gap-3", isUser ? "justify-end" : "justify-start")}>
@@ -53,20 +55,19 @@ export function ChatMessage({ message }: ChatMessageProps) {
           </div>
         </div>
 
-        {/* Sources */}
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-2">
             {message.sources.map((source, index) => (
-              <a
+              <button
                 key={source.id}
-                href="#"
-                className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-accent transition-colors"
+                onClick={() => viewSource(source)} 
+                className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 cursor-pointer"
               >
                 <span className="flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-muted text-[9px]">
                   {index + 1}
                 </span>
                 <span className="truncate max-w-37.5">{source.title}</span>
-              </a>
+              </button>
             ))}
           </div>
         )}

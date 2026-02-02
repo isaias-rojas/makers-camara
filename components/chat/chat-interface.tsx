@@ -5,6 +5,7 @@ import { ChatInput } from '@/components/chat/chat-input';
 import { ChatMessage } from '@/components/chat/chat-message';
 import { SuggestedQuestions } from '@/components/chat/suggested-questions';
 import { ChatHeader } from '@/components/chat/chat-header';
+import { SourceViewer } from '@/components/chat/source-viewer'; 
 import { useChat } from '@/hooks/use-chat';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
@@ -31,6 +32,9 @@ export function ChatInterface() {
   return (
     <div className="flex flex-col h-screen bg-background">
       <ChatHeader onNewChat={clearChat} showNewChatButton={!showWelcome} />
+      
+      <SourceViewer />
+
       <main className="flex-1 overflow-hidden relative">
         <div 
           ref={scrollAreaRef}
